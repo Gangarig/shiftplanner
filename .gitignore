@@ -1,5 +1,57 @@
-﻿node_modules
-.next
-out
-.env*
+﻿# -----------------------
+# Node / Next.js
+# -----------------------
+node_modules/
+.next/
+out/
+dist/
+
+# Cache
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Coverage / tests
+coverage/
+*.lcov
+*.tsbuildinfo
+
+# -----------------------
+# PocketBase
+# -----------------------
+pb_data/          # PocketBase database + migrations
+pb_hooks/         # custom PocketBase hooks
+pb_public/        # public assets served by PocketBase
+pb_migrations/    # migration files (ignore if auto-generated)
+
+# If you want to keep migrations in Git (recommended for team),
+# comment out pb_migrations/ above.
+
+# -----------------------
+# Logs
+# -----------------------
+logs
 *.log
+
+# -----------------------
+# Optional: lock files (uncomment the one you don’t use)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
