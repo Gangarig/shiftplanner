@@ -1,0 +1,1132 @@
+'use client'
+import React, { useState, useEffect } from 'react'
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
+import { useAuth } from '../../context/AuthContext'
+import { RequireAuth } from '../../components/RequireAuth'
+import { RoleGuard } from '../../components/RoleGuard'
+import pb from '../../lib/pb'
+
+// Station configuration
+const STATIONS = [
+  { id: 'beizen', name: 'Beizen', shortName: 'Beizen', color: '#3b82f6' },
+  { id: 'he-bad', name: 'HE-Bad', shortName: 'HE-Bad', color: '#f97316' },
+  { id: 'faerben', name: 'Färben', shortName: 'Färben', color: '#eab308' },
+  { id: 'chromatieren', name: 'Chromatieren / Pass.', shortName: 'Chromat.', color: '#22c55e' },
+  { id: 'beschichtung', name: 'Arbeitsplatz Beschichtung', shortName: 'Beschichtung', color: '#06b6d4' },
+  { id: 'halle', name: 'Arbeitsplatz Halle', shortName: 'Halle', color: '#8b5cf6' },
+  { id: 'schlosserei', name: 'Schlosserei', shortName: 'Schlosserei', color: '#ec4899' },
+  { id: 'aufsteckerei', name: 'Aufsteckerei', shortName: 'Aufsteckerei', color: '#f59e0b' },
+  { id: 'abdeckerei', name: 'Abdeckerei', shortName: 'Abdeckerei', color: '#10b981' },
+  { id: 'instandhaltung', name: 'Instandhaltung', shortName: 'Instandhaltung', color: '#6b7280' }
+]
+
+const DAYS = [
+  { id: 'monday', name: 'Montag', short: 'Mo' },
+  { id: 'tuesday', name: 'Dienstag', short: 'Di' },
+  { id: 'wednesday', name: 'Mittwoch', short: 'Mi' },
+  { id: 'thursday', name: 'Donnerstag', short: 'Do' },
+  { id: 'friday', name: 'Freitag', short: 'Fr' }
+]
+
+const WORKER_STATUS_OPTIONS = [
+  { value: 'available', label: 'Verfügbar', icon: '✅', color: '#10b981' },
+  { value: 'krank', label: 'Krank', icon: '🤒', color: '#ef4444' },
+  { value: 'urlaub', label: 'Urlaub', icon: '🏖️', color: '#3b82f6' },
+  { value: 'inactive', label: 'Inaktiv', icon: '🚫', color: '#6b7280' }
+]
+
+export default function Schichtplan() {
+  console.log('🎬 Schichtplan component rendering')
+  const { user } = useAuth()
+  const [workers, setWorkers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [plan, setPlan] = useState({})
+  const [selectedWeek, setSelectedWeek] = useState(new Date())
+  const [retryCount, setRetryCount] = useState(0)
+  const [notifications, setNotifications] = useState([])
+  const [selectedWorker, setSelectedWorker] = useState(null)
+  const [workerStatus, setWorkerStatus] = useState({})
+  const [workerNotes, setWorkerNotes] = useState({})
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (selectedWorker && !event.target.closest('.clickable-worker') && !event.target.closest('.worker-status-dropdown')) {
+        console.log('🖱️ Clicking outside, closing dropdown')
+        setSelectedWorker(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [selectedWorker])
+
+  // Monitor workerStatus changes
+  useEffect(() => {
+    console.log('🔄 workerStatus state changed:', workerStatus)
+  }, [workerStatus])
+
+  // Initialize plan structure
+  useEffect(() => {
+    const initPlan = {}
+    STATIONS.forEach(station => {
+      initPlan[station.id] = {}
+      DAYS.forEach(day => {
+        initPlan[station.id][day.id] = []
+      })
+    })
+    setPlan(initPlan)
+  }, [])
+
+  // Load workers
+  useEffect(() => {
+    console.log('🚀 useEffect triggered - starting to load workers')
+    let isMounted = true
+    let abortController = new AbortController()
+    
+    const loadWorkers = async () => {
+      console.log('🔄 loadWorkers function called')
+      try {
+        setLoading(true)
+        setError(null)
+        
+        // Add a small delay to prevent rapid requests
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+        if (!isMounted) return
+        
+        // Test PocketBase connection first
+        console.log('🏥 Testing PocketBase health...')
+        try {
+          await pb.health.check()
+          console.log('✅ PocketBase health check passed')
+        } catch (healthErr) {
+          console.log('❌ PocketBase health check failed:', healthErr)
+          if (isMounted) {
+            setError('PocketBase läuft nicht. Bitte starten Sie: ./pocketbase serve')
+            setLoading(false)
+            return
+          }
+        }
+        
+        // Fetch all users for testing
+        console.log('🔍 Fetching ALL users from PocketBase...')
+        
+        const allUsers = await pb.collection('users').getFullList()
+        console.log('📋 ALL USERS IN COLLECTION:')
+        console.log('📊 Total users found:', allUsers.length)
+        console.log('📋 Users array:', allUsers)
+        
+        // Log each user individually
+        allUsers.forEach((user, index) => {
+          console.log(`👤 USER ${index + 1}:`, {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            isActive: user.isActive,
+            created: user.created,
+            updated: user.updated
+          })
+        })
+        
+        const records = allUsers
+        
+        if (isMounted) {
+          // Filter on client side
+          const activeWorkers = records.filter(user => 
+            user.isActive !== false && 
+            (user.role === 'worker' || user.role === 'manager')
+          )
+          
+          console.log('👥 Filtered workers:', activeWorkers)
+          console.log('📈 Number of workers after filtering:', activeWorkers.length)
+          
+          // Log each user's details for debugging
+          records.forEach((user, index) => {
+            console.log(`👤 User ${index + 1}:`, {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              role: user.role,
+              isActive: user.isActive,
+              willShow: user.isActive !== false && (user.role === 'worker' || user.role === 'manager')
+            })
+          })
+          
+          setWorkers(activeWorkers)
+        }
+      } catch (err) {
+        console.log('❌ Error in loadWorkers:', err)
+        console.log('❌ Error type:', typeof err)
+        console.log('❌ Error message:', err.message)
+        console.log('❌ Error status:', err.status)
+        
+        // Ignore autocancellation errors
+        if (err.message && err.message.includes('autocancelled')) {
+          console.log('Request was cancelled, ignoring...')
+          return
+        }
+        
+        console.error('Error loading workers:', err)
+        if (isMounted) {
+          if (err.status === 400) {
+            setError('PocketBase Collection "users" nicht gefunden. Bitte folgen Sie der POCKETBASE_SETUP.md Anleitung.')
+          } else if (err.status === 0) {
+            setError('PocketBase läuft nicht. Bitte starten Sie: ./pocketbase serve')
+          } else {
+            setError('Fehler beim Laden der Mitarbeiter: ' + err.message)
+          }
+        }
+      } finally {
+        console.log('🏁 loadWorkers finally block - isMounted:', isMounted)
+        if (isMounted) {
+          setLoading(false)
+        }
+      }
+    }
+    
+    loadWorkers()
+    
+    return () => {
+      isMounted = false
+      abortController.abort()
+    }
+  }, [])
+
+  const handleDragEnd = (result) => {
+    const { source, destination, draggableId } = result
+    
+    if (!destination) return
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return
+
+    // Extract worker ID from draggableId
+    const workerId = draggableId.split('-')[0]
+    const worker = workers.find(w => w.id === workerId)
+    
+    if (!worker) {
+      addNotification('Worker not found', 'error')
+      return
+    }
+
+    console.log('🔄 Drag operation:', { source, destination, workerId, worker })
+
+    setPlan(prev => {
+      const newPlan = JSON.parse(JSON.stringify(prev)) // Deep clone to prevent mutations
+      
+      // Handle different drag scenarios
+      if (source.droppableId === 'workers' && destination.droppableId !== 'workers') {
+        // Dragging from pool to station
+        const [destStation, destDay] = destination.droppableId.split('|')
+        
+        // Check if worker is already in this station
+        const existingWorkers = newPlan[destStation]?.[destDay] || []
+        if (existingWorkers.some(w => w.id === workerId)) {
+          addNotification('Worker already assigned to this station', 'error')
+          return prev
+        }
+
+        // Add worker to destination station
+        newPlan[destStation] = newPlan[destStation] || {}
+        newPlan[destStation][destDay] = [...existingWorkers, worker]
+        
+        console.log('✅ Added worker to station:', { destStation, destDay, worker })
+
+      } else if (source.droppableId !== 'workers' && destination.droppableId !== 'workers') {
+        // Dragging from station to station
+        const [sourceStation, sourceDay] = source.droppableId.split('|')
+        const [destStation, destDay] = destination.droppableId.split('|')
+
+        // Check if worker is already in destination station
+        const destWorkers = newPlan[destStation]?.[destDay] || []
+        if (destWorkers.some(w => w.id === workerId)) {
+          addNotification('Worker already assigned to this station', 'error')
+          return prev
+        }
+
+        // Remove from source station
+        newPlan[sourceStation][sourceDay] = newPlan[sourceStation][sourceDay].filter(
+          (_, index) => index !== source.index
+        )
+        
+        // Add to destination station
+        newPlan[destStation] = newPlan[destStation] || {}
+        newPlan[destStation][destDay] = [...destWorkers, worker]
+        
+        console.log('✅ Moved worker between stations:', { sourceStation, sourceDay, destStation, destDay, worker })
+
+      } else if (source.droppableId !== 'workers' && destination.droppableId === 'workers') {
+        // Dragging from station back to pool
+        const [sourceStation, sourceDay] = source.droppableId.split('|')
+
+        // Remove from source station
+        newPlan[sourceStation][sourceDay] = newPlan[sourceStation][sourceDay].filter(
+          (_, index) => index !== source.index
+        )
+        
+        console.log('✅ Removed worker from station:', { sourceStation, sourceDay, worker })
+      }
+      
+      return newPlan
+    })
+  }
+
+  const getWeekDates = (date) => {
+    const monday = new Date(date)
+    monday.setDate(date.getDate() - date.getDay() + 1)
+    
+    return DAYS.map((_, index) => {
+      const day = new Date(monday)
+      day.setDate(monday.getDate() + index)
+      return day
+    })
+  }
+
+  const formatDate = (date) => {
+    return date.toLocaleDateString('de-DE', { 
+      day: '2-digit', 
+      month: '2-digit' 
+    })
+  }
+
+  // Business Rules Validation Functions
+  const getWorkerAssignments = (workerId) => {
+    const assignments = []
+    STATIONS.forEach(station => {
+      DAYS.forEach(day => {
+        const stationWorkers = plan[station.id]?.[day.id] || []
+        if (stationWorkers.some(w => w.id === workerId)) {
+          assignments.push({ station: station.id, day: day.id, stationName: station.name, dayName: day.name })
+        }
+      })
+    })
+    return assignments
+  }
+
+  const isWorkerFullyAssigned = (workerId) => {
+    // Check if worker is assigned to at least one station for each day (Monday to Friday)
+    const assignments = getWorkerAssignments(workerId)
+    const assignedDays = new Set(assignments.map(a => a.day))
+    
+    // Worker is fully assigned if they have at least one station for each day
+    return DAYS.every(day => assignedDays.has(day.id))
+  }
+
+  const getStationWorkers = (stationId, dayId) => {
+    return plan[stationId]?.[dayId] || []
+  }
+
+  const canAssignWorker = (workerId, stationId, dayId) => {
+    const worker = workers.find(w => w.id === workerId)
+    if (!worker) return { valid: false, reason: 'Worker not found' }
+
+    // Rule 1: Worker must be active
+    if (worker.isActive === false) {
+      return { valid: false, reason: 'Worker is inactive' }
+    }
+
+    // Rule 2: Station cannot have duplicate workers
+    const stationWorkers = getStationWorkers(stationId, dayId)
+    if (stationWorkers.some(w => w.id === workerId)) {
+      return { valid: false, reason: 'Worker already assigned to this station' }
+    }
+
+    return { valid: true }
+  }
+
+  const addNotification = (message, type = 'info') => {
+    const id = Date.now()
+    setNotifications(prev => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id))
+    }, 5000)
+  }
+
+  const getWorkerStatus = (workerId) => {
+    return workerStatus[workerId] || 'available'
+  }
+
+  const setWorkerStatusValue = (workerId, status) => {
+    console.log('🔄 setWorkerStatusValue called:', { workerId, status })
+    console.log('🔄 Current workerStatus before:', workerStatus)
+    
+    setWorkerStatus(prev => {
+      const newStatus = {
+        ...prev,
+        [workerId]: status
+      }
+      console.log('🔄 New workerStatus:', newStatus)
+      return newStatus
+    })
+    setSelectedWorker(null)
+    console.log('🔄 Status change completed')
+  }
+
+  const getWorkerNote = (workerId, stationId, dayId) => {
+    const key = `${workerId}-${stationId}-${dayId}`
+    return workerNotes[key] || ''
+  }
+
+  const setWorkerNote = (workerId, stationId, dayId, note) => {
+    const key = `${workerId}-${stationId}-${dayId}`
+    setWorkerNotes(prev => ({
+      ...prev,
+      [key]: note
+    }))
+  }
+
+  const getWorkerStatusInfo = (workerId) => {
+    const status = getWorkerStatus(workerId)
+    return WORKER_STATUS_OPTIONS.find(option => option.value === status) || WORKER_STATUS_OPTIONS[0]
+  }
+
+      const getAvailableWorkers = () => {
+        console.log('📋 getAvailableWorkers called')
+        console.log('📋 Current workers state:', workers)
+        console.log('📋 Number of workers in state:', workers.length)
+        console.log('📋 Current worker status state:', workerStatus)
+        
+        // Filter to show only workers and managers who are active AND available
+        const eligibleWorkers = workers.filter(worker => {
+          const workerStatusValue = getWorkerStatus(worker.id)
+          const isEligible = (worker.role === 'worker' || worker.role === 'manager') &&
+            worker.isActive !== false &&
+            (workerStatusValue === 'available' || workerStatusValue === undefined)
+          
+          console.log(`📋 Worker ${worker.firstName} (${worker.id}): role=${worker.role}, isActive=${worker.isActive}, status=${workerStatusValue}, eligible=${isEligible}`)
+          return isEligible
+        })
+        
+        console.log('📋 Eligible workers (worker/manager + active + available):', eligibleWorkers)
+        
+        // Filter by worker status and assignment status
+        const availableWorkers = eligibleWorkers.filter(worker => {
+          const workerStatusValue = getWorkerStatus(worker.id)
+          const isFullyAssigned = isWorkerFullyAssigned(worker.id)
+          
+          // Only show workers who are available and not fully assigned
+          return workerStatusValue === 'available' && !isFullyAssigned
+        })
+        
+        console.log('📋 Available workers (available status + not fully assigned):', availableWorkers)
+        console.log('📋 Number of available workers:', availableWorkers.length)
+        
+        return availableWorkers
+      }
+
+      const getUnavailableWorkers = () => {
+        // Get all workers (active and inactive)
+        const allWorkers = workers.filter(worker => 
+          worker.role === 'worker' || worker.role === 'manager'
+        )
+        
+        // Separate into unavailable categories
+        const inactiveWorkers = allWorkers.filter(worker => worker.isActive === false)
+        const fullyAssignedWorkers = allWorkers.filter(worker => 
+          worker.isActive !== false && isWorkerFullyAssigned(worker.id)
+        )
+        const krankWorkers = allWorkers.filter(worker => 
+          worker.isActive !== false && getWorkerStatus(worker.id) === 'krank'
+        )
+        const urlaubWorkers = allWorkers.filter(worker => 
+          worker.isActive !== false && getWorkerStatus(worker.id) === 'urlaub'
+        )
+        
+        return {
+          inactive: inactiveWorkers,
+          fullyAssigned: fullyAssignedWorkers,
+          krank: krankWorkers,
+          urlaub: urlaubWorkers,
+          total: inactiveWorkers.length + fullyAssignedWorkers.length + krankWorkers.length + urlaubWorkers.length
+        }
+      }
+
+  const clearStation = (stationId, dayId) => {
+    setPlan(prev => ({
+      ...prev,
+      [stationId]: {
+        ...prev[stationId],
+        [dayId]: []
+      }
+    }))
+  }
+
+  const clearAll = () => {
+    const emptyPlan = {}
+    STATIONS.forEach(station => {
+      emptyPlan[station.id] = {}
+      DAYS.forEach(day => {
+        emptyPlan[station.id][day.id] = []
+      })
+    })
+    setPlan(emptyPlan)
+    addNotification('🗑️ Schichtplan wurde geleert. Alle Zuweisungen wurden entfernt.', 'info')
+  }
+
+  // Check if all stations are filled for each day
+  const getStationStatus = () => {
+    const status = {}
+    DAYS.forEach(day => {
+      status[day.id] = {
+        day: day.name,
+        filledStations: 0,
+        totalStations: STATIONS.length,
+        isComplete: false
+      }
+      
+      STATIONS.forEach(station => {
+        const workers = plan[station.id]?.[day.id] || []
+        if (workers.length > 0) {
+          status[day.id].filledStations++
+        }
+      })
+      
+      status[day.id].isComplete = status[day.id].filledStations === status[day.id].totalStations
+    })
+    
+    return status
+  }
+
+  const getOverallStatus = () => {
+    const stationStatus = getStationStatus()
+    const totalDays = DAYS.length
+    const completeDays = Object.values(stationStatus).filter(day => day.isComplete).length
+    const availableWorkers = getAvailableWorkers()
+    
+    return {
+      completeDays,
+      totalDays,
+      availableWorkers: availableWorkers.length,
+      isFullyPlanned: completeDays === totalDays && availableWorkers.length === 0
+    }
+  }
+
+  // Check for completion and show notification
+  useEffect(() => {
+    const status = getOverallStatus()
+    if (status.isFullyPlanned) {
+      addNotification('🎉 Wöchentlicher Schichtplan ist vollständig! Alle Stationen sind besetzt und alle Mitarbeiter haben ihre Schichten.', 'success')
+    }
+  }, [plan]) // Trigger when plan changes
+
+  const retryLoadWorkers = async () => {
+    setError(null)
+    setRetryCount(prev => prev + 1)
+    setLoading(true)
+    
+    try {
+      const records = await pb.collection('users').getFullList({
+        sort: 'firstName,lastName'
+      })
+      
+      console.log('🔄 Retry - Raw users from PocketBase:', records)
+      console.log('🔄 Retry - Number of users found:', records.length)
+      
+      const activeWorkers = records.filter(user => 
+        user.isActive !== false && 
+        (user.role === 'worker' || user.role === 'manager')
+      )
+      
+      console.log('🔄 Retry - Filtered workers:', activeWorkers)
+      console.log('🔄 Retry - Number of workers after filtering:', activeWorkers.length)
+      
+      setWorkers(activeWorkers)
+      setRetryCount(0) // Reset retry count on success
+    } catch (err) {
+      if (err.message && err.message.includes('autocancelled')) {
+        console.log('Request was cancelled, ignoring...')
+        return
+      }
+      
+      console.error('Retry failed:', err)
+      if (err.status === 400) {
+        setError('PocketBase Collection "users" nicht gefunden. Bitte folgen Sie der POCKETBASE_SETUP.md Anleitung.')
+      } else if (err.status === 0) {
+        setError('PocketBase läuft nicht. Bitte starten Sie: ./pocketbase serve')
+      } else {
+        setError('Fehler beim Laden der Mitarbeiter: ' + err.message)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+
+  if (loading) {
+    return (
+      <RequireAuth>
+        <RoleGuard requiredRole="manager">
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "100vh",
+            flexDirection: "column",
+            gap: "16px"
+          }}>
+            <div style={{
+              width: "40px",
+              height: "40px",
+              border: "4px solid #374151",
+              borderTop: "4px solid #2563eb",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite"
+            }}></div>
+            <p style={{ color: "#9ca3af" }}>Lade Schichtplan...</p>
+          </div>
+        </RoleGuard>
+      </RequireAuth>
+    )
+  }
+
+
+  return (
+    <RequireAuth>
+      <RoleGuard requiredRole="manager">
+        <div className="container">
+          <header style={{ 
+            display: "flex", 
+            justifyContent: "space-between", 
+            alignItems: "center",
+            marginBottom: "30px",
+            paddingBottom: "20px",
+            borderBottom: "1px solid #2a3142"
+          }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: "2rem", color: "#e7ebf3" }}>
+                📅 Schichtplan
+              </h1>
+              <p style={{ margin: "8px 0 0 0", color: "#9ca3af" }}>
+                Ziehen Sie Mitarbeiter zu den Stationen für jeden Tag
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button onClick={clearAll} className="btn" style={{ backgroundColor: "#ef4444" }}>
+                Alle löschen
+              </button>
+              <button className="btn" style={{ backgroundColor: "#059669" }}>
+                Plan speichern
+              </button>
+            </div>
+          </header>
+
+          {/* Status Display */}
+          {(() => {
+            const status = getOverallStatus()
+            const stationStatus = getStationStatus()
+            
+            return (
+              <div style={{
+                backgroundColor: "#1f2937",
+                border: "1px solid #374151",
+                borderRadius: "8px",
+                padding: "16px",
+                marginBottom: "20px"
+              }}>
+                <h3 style={{ margin: "0 0 12px 0", color: "#e7ebf3" }}>📊 Planungsstatus</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
+                  <div style={{ padding: "8px", backgroundColor: "#111827", borderRadius: "6px" }}>
+                    <div style={{ color: "#9ca3af", fontSize: "14px" }}>Verfügbare Mitarbeiter</div>
+                    <div style={{ color: "#e7ebf3", fontSize: "18px", fontWeight: "600" }}>{status.availableWorkers}</div>
+                  </div>
+                  <div style={{ padding: "8px", backgroundColor: "#111827", borderRadius: "6px" }}>
+                    <div style={{ color: "#9ca3af", fontSize: "14px" }}>Vollständige Tage</div>
+                    <div style={{ color: "#e7ebf3", fontSize: "18px", fontWeight: "600" }}>{status.completeDays}/{status.totalDays}</div>
+                  </div>
+                  <div style={{ padding: "8px", backgroundColor: "#111827", borderRadius: "6px" }}>
+                    <div style={{ color: "#9ca3af", fontSize: "14px" }}>Status</div>
+                    <div style={{ 
+                      color: status.isFullyPlanned ? "#22c55e" : "#f59e0b", 
+                      fontSize: "14px", 
+                      fontWeight: "600" 
+                    }}>
+                      {status.isFullyPlanned ? "✅ Vollständig geplant" : "⏳ In Bearbeitung"}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Day-by-day status */}
+                <div style={{ marginTop: "12px" }}>
+                  <div style={{ color: "#9ca3af", fontSize: "14px", marginBottom: "8px" }}>Tagesstatus:</div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    {Object.values(stationStatus).map(day => (
+                      <div key={day.day} style={{
+                        padding: "4px 8px",
+                        backgroundColor: day.isComplete ? "#22c55e" : "#374151",
+                        color: "white",
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                        fontWeight: "500"
+                      }}>
+                        {day.day}: {day.filledStations}/{day.totalStations}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Unavailable Workers */}
+                {(() => {
+                  const unavailable = getUnavailableWorkers()
+                  if (unavailable.total === 0) return null
+                  
+                  const allUnavailableWorkers = [
+                    ...unavailable.inactive.map(w => ({ ...w, status: 'inactive' })),
+                    ...unavailable.krank.map(w => ({ ...w, status: 'krank' })),
+                    ...unavailable.urlaub.map(w => ({ ...w, status: 'urlaub' })),
+                    ...unavailable.fullyAssigned.map(w => ({ ...w, status: 'assigned' }))
+                  ]
+                  
+                  return (
+                    <div style={{ marginTop: "16px" }}>
+                      <div style={{ color: "#9ca3af", fontSize: "14px", marginBottom: "8px" }}>
+                        Nicht verfügbare Mitarbeiter ({unavailable.total}):
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        {allUnavailableWorkers.map((worker, index) => {
+                          const statusInfo = worker.status === 'inactive' ? 
+                            { icon: '🚫', color: '#6b7280', label: 'Inaktiv' } :
+                            worker.status === 'krank' ? 
+                            { icon: '🤒', color: '#ef4444', label: 'Krank' } :
+                            worker.status === 'urlaub' ? 
+                            { icon: '🏖️', color: '#3b82f6', label: 'Urlaub' } :
+                            { icon: '✅', color: '#10b981', label: 'Zugewiesen' }
+                          
+                          return (
+                            <div
+                              key={`unavailable-${worker.id}-${index}`}
+                              style={{
+                                padding: "8px 12px",
+                                backgroundColor: statusInfo.color + '20',
+                                border: `2px solid ${statusInfo.color}`,
+                                color: statusInfo.color,
+                                borderRadius: "6px",
+                                fontSize: "13px",
+                                cursor: "pointer",
+                                position: "relative",
+                                minWidth: "120px",
+                                textAlign: "center",
+                                transition: "all 0.2s",
+                                fontWeight: "500",
+                                zIndex: selectedWorker === worker.id ? 10000 : 1
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.transform = "scale(1.05)"
+                                e.target.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.transform = "scale(1)"
+                                e.target.style.boxShadow = "none"
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                console.log('🖱️ Worker chip clicked:', worker.id, 'current selected:', selectedWorker)
+                                setSelectedWorker(selectedWorker === worker.id ? null : worker.id)
+                                console.log('🖱️ After click, selectedWorker will be:', selectedWorker === worker.id ? null : worker.id)
+                              }}
+                            >
+                              {statusInfo.icon} {worker.firstName} {worker.lastName} ({statusInfo.label})
+                              
+                              {/* Status Dropdown for Unavailable Workers */}
+                              {console.log('🔍 Checking dropdown for worker:', worker.id, 'selectedWorker:', selectedWorker, 'should show:', selectedWorker === worker.id)}
+                              {selectedWorker === worker.id && (
+                                <div style={{
+                                  position: "absolute",
+                                  top: "100%",
+                                  left: "0",
+                                  right: "0",
+                                  background: "#1f2937",
+                                  border: "3px solid #10b981",
+                                  borderRadius: "6px",
+                                  padding: "8px",
+                                  zIndex: 10001,
+                                  boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                                  marginTop: "4px",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "4px",
+                                  minWidth: "150px",
+                                  maxWidth: "200px",
+                                  isolation: "isolate",
+                                  overflow: "hidden"
+                                }}>
+                                  {WORKER_STATUS_OPTIONS.map(option => (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      style={{
+                                        width: "100%",
+                                        padding: "10px 12px",
+                                        background: "#374151",
+                                        border: "1px solid #4b5563",
+                                        color: option.color,
+                                        textAlign: "left",
+                                        cursor: "pointer",
+                                        borderRadius: "4px",
+                                        fontSize: "12px",
+                                        transition: "all 0.2s",
+                                        margin: "0",
+                                        outline: "none",
+                                        userSelect: "none",
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis"
+                                      }}
+                                      onMouseDown={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        console.log('🔄 Button mousedown! Changing worker status:', worker.id, 'to', option.value)
+                                        console.log('🔄 Worker details:', worker)
+                                        console.log('🔄 Current workerStatus before click:', workerStatus)
+                                        
+                                        // Force the status change
+                                        setWorkerStatus(prev => {
+                                          const newStatus = {
+                                            ...prev,
+                                            [worker.id]: option.value
+                                          }
+                                          console.log('🔄 Setting new status:', newStatus)
+                                          return newStatus
+                                        })
+                                        
+                                        // Close dropdown
+                                        setSelectedWorker(null)
+                                        console.log('🔄 Status change completed')
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.target.style.background = "#4b5563"
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.target.style.background = "#374151"
+                                      }}
+                                    >
+                                      {option.icon} {option.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )
+          })()}
+
+          {error && (
+            <div style={{
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: "8px",
+              padding: "12px",
+              marginBottom: "20px",
+              color: "#ef4444"
+            }}>
+              <strong>Fehler:</strong> {error}
+              <div style={{ marginTop: "8px", fontSize: "14px", color: "#6b7280" }}>
+                💡 <strong>Lösung:</strong>
+                <br />1. Starten Sie PocketBase: <code>./pocketbase serve</code>
+                <br />2. Öffnen Sie: <a href="http://127.0.0.1:8090/_/" target="_blank" style={{color: "#2563eb"}}>http://127.0.0.1:8090/_/</a>
+                <br />3. Erstellen Sie "users" Collection (Typ: Auth)
+                <br />4. Fügen Sie Felder hinzu: role, firstName, lastName, isActive
+                <br />5. Erstellen Sie Test-Benutzer
+              </div>
+              <button 
+                onClick={retryLoadWorkers} 
+                disabled={loading}
+                style={{
+                  marginTop: "8px",
+                  padding: "6px 12px",
+                  backgroundColor: loading ? "#6b7280" : "#2563eb",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: loading ? "not-allowed" : "pointer"
+                }}
+              >
+                {loading ? '⏳ Lädt...' : `🔄 Erneut versuchen ${retryCount > 0 ? `(${retryCount})` : ''}`}
+              </button>
+            </div>
+          )}
+
+          {/* Notifications */}
+          {notifications.length > 0 && (
+            <div style={{
+              position: "fixed",
+              top: "20px",
+              right: "20px",
+              zIndex: 1000,
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px"
+            }}>
+              {notifications.map(notification => (
+                <div
+                  key={notification.id}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    color: "white",
+                    backgroundColor: 
+                      notification.type === 'error' ? "#ef4444" :
+                      notification.type === 'success' ? "#22c55e" :
+                      notification.type === 'warning' ? "#f59e0b" : "#3b82f6",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                    maxWidth: "400px",
+                    animation: "slideIn 0.3s ease-out"
+                  }}
+                >
+                  {notification.type === 'error' && '❌ '}
+                  {notification.type === 'success' && '✅ '}
+                  {notification.type === 'warning' && '⚠️ '}
+                  {notification.type === 'info' && 'ℹ️ '}
+                  {notification.message}
+                </div>
+              ))}
+            </div>
+          )}
+
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <div className="shift-planner-layout" style={{ 
+                  display: 'flex', 
+                  flexDirection: window.innerWidth >= 768 ? 'row' : 'column',
+                  gap: '16px',
+                  minHeight: '500px',
+                  width: '100%'
+                }}>
+                  {/* Workers Pool - Only Available Workers */}
+                  <div className="workers-pool" style={{
+                    width: window.innerWidth >= 768 ? '300px' : '100%',
+                    maxWidth: window.innerWidth >= 768 ? '300px' : '100%',
+                    flexShrink: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    order: window.innerWidth >= 768 ? 1 : 1
+                  }}>
+                    <h3 className="workers-title">
+                      Verfügbare Mitarbeiter ({getAvailableWorkers().length})
+                    </h3>
+                    <Droppable droppableId="workers">
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          className="workers-container"
+                          style={{
+                            backgroundColor: snapshot.isDraggingOver ? "#1f2937" : "#111827",
+                          }}
+                        >
+                          {getAvailableWorkers().length === 0 ? (
+                            <div style={{
+                              color: "#9ca3af",
+                              fontSize: "12px",
+                              textAlign: "center",
+                              padding: "20px",
+                              width: "100%"
+                            }}>
+                              Keine verfügbaren Mitarbeiter
+                            </div>
+                          ) : (
+                            getAvailableWorkers().map((worker, index) => (
+                            <Draggable key={`worker-${worker.id}-${index}`} draggableId={worker.id} index={index}>
+                              {(provided, snapshot) => (
+                                <div
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  {...provided.dragHandleProps}
+                                  className="worker-item clickable-worker"
+                              style={{
+                                backgroundColor: snapshot.isDragging ? "#2563eb" : "#374151",
+                                boxShadow: snapshot.isDragging ? "0 4px 12px rgba(0,0,0,0.3)" : "none",
+                                transform: snapshot.isDragging ? "scale(1.05)" : "scale(1)",
+                                position: "relative",
+                                textAlign: "left",
+                                ...provided.draggableProps.style
+                              }}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedWorker(selectedWorker === worker.id ? null : worker.id)
+                                  }}
+                                >
+                                  {worker.firstName}
+                                  <span className="worker-status-indicator" style={{ 
+                                    color: getWorkerStatusInfo(worker.id).color,
+                                    marginLeft: "4px"
+                                  }}>
+                                    {getWorkerStatusInfo(worker.id).icon}
+                                  </span>
+                                  
+                                  {/* Status Dropdown */}
+                                  {selectedWorker === worker.id && (
+                                    <div className="worker-status-dropdown">
+                                      {WORKER_STATUS_OPTIONS.map(option => (
+                                        <button
+                                          key={option.value}
+                                          className="status-option"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setWorkerStatusValue(worker.id, option.value)
+                                          }}
+                                          style={{ color: option.color }}
+                                        >
+                                          {option.icon} {option.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </Draggable>
+                          ))
+                          )}
+                          {provided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  </div>
+
+                  {/* Shift Plan Table - Always Visible */}
+                  <div className="shift-table-container" style={{ 
+                    flex: 1,
+                    minHeight: '500px', 
+                    border: '2px solid #10b981', 
+                    backgroundColor: '#1f2937',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    marginTop: window.innerWidth >= 768 ? '0' : '16px',
+                    width: '100%',
+                    display: 'block',
+                    position: 'relative',
+                    order: window.innerWidth >= 768 ? 2 : 3
+                  }}>
+                    <div className="shift-table" style={{
+                      minHeight: '300px',
+                      visibility: 'visible',
+                      opacity: 1,
+                      display: 'grid',
+                      gridTemplateColumns: '100px repeat(5, minmax(70px, 1fr))',
+                      gap: '1px',
+                      backgroundColor: '#374151',
+                      borderRadius: '4px',
+                      overflow: 'hidden',
+                      fontSize: '10px',
+                      width: '100%',
+                      maxWidth: '100%'
+                    }}>
+                      {/* Header Row */}
+                      <div className="table-header" style={{
+                        padding: '4px 3px',
+                        backgroundColor: '#1f2937',
+                        color: '#e7ebf3',
+                        fontWeight: 'bold',
+                        textAlign: 'center',
+                        borderBottom: '1px solid #4b5563'
+                      }}>
+                        Station
+                      </div>
+                      {DAYS.map(day => (
+                        <div key={day.id} className="day-header">
+                          {day.short}
+                          <br />
+                          <small className="day-date">
+                            {formatDate(getWeekDates(selectedWeek)[DAYS.indexOf(day)])}
+                          </small>
+                        </div>
+                      ))}
+
+                  {/* Station Rows */}
+                  {STATIONS.map(station => (
+                    <React.Fragment key={station.id}>
+                      <div 
+                        className="station-name"
+                        style={{ borderLeftColor: station.color }}
+                      >
+                        {station.shortName}
+                      </div>
+                      {DAYS.map(day => (
+                        <Droppable key={`${station.id}|${day.id}`} droppableId={`${station.id}|${day.id}`}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.droppableProps}
+                              className={`station-cell ${snapshot.isDraggingOver ? 'dragging-over' : ''}`}
+                            >
+                              {plan[station.id]?.[day.id]?.map((worker, index) => (
+                                <Draggable key={`${station.id}-${day.id}-${worker.id}-${index}`} draggableId={`${worker.id}-${station.id}-${day.id}-${index}`} index={index}>
+                                  {(provided, snapshot) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                      className={`worker-in-station ${snapshot.isDragging ? 'dragging' : ''}`}
+                                      style={{
+                                        backgroundColor: snapshot.isDragging ? "#2563eb" : "#6b7280",
+                                        position: "relative",
+                                        ...provided.draggableProps.style
+                                      }}
+                                    >
+                                      <div className="worker-name-in-station">
+                                        {worker.firstName}
+                                        <span className="worker-status-in-station" style={{ 
+                                          color: getWorkerStatusInfo(worker.id).color,
+                                          marginLeft: "4px"
+                                        }}>
+                                          {getWorkerStatusInfo(worker.id).icon}
+                                        </span>
+                                      </div>
+                                      
+                                      {/* Note Input */}
+                                      <div className="worker-note-container">
+                                        <input
+                                          type="text"
+                                          placeholder="Notiz..."
+                                          value={getWorkerNote(worker.id, station.id, day.id)}
+                                          onChange={(e) => setWorkerNote(worker.id, station.id, day.id, e.target.value)}
+                                          className="worker-note-input"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      </div>
+                                      
+                                      {/* Show note if exists */}
+                                      {getWorkerNote(worker.id, station.id, day.id) && (
+                                        <div className="worker-note-display">
+                                          📝 {getWorkerNote(worker.id, station.id, day.id)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))}
+                              {provided.placeholder}
+                              
+                              {/* Clear button */}
+                              {plan[station.id]?.[day.id]?.length > 0 && (
+                                <button
+                                  onClick={() => clearStation(station.id, day.id)}
+                                  className="clear-station-btn"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </Droppable>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                    </div>
+                  </div>
+                </div>
+              </DragDropContext>
+        </div>
+      </RoleGuard>
+    </RequireAuth>
+  )
+}
