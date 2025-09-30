@@ -11,12 +11,12 @@ const STATIONS = [
   { id: 'beizen', name: 'Beizen', shortName: 'Beizen', color: '#3b82f6' },
   { id: 'he-bad', name: 'HE-Bad', shortName: 'HE-Bad', color: '#f97316' },
   { id: 'faerben', name: 'Färben', shortName: 'Färben', color: '#eab308' },
-  { id: 'chromatieren', name: 'Chromatieren / Pass.', shortName: 'Chromat.', color: '#22c55e' },
+  { id: 'chromatieren', name: 'Chromatieren / Pass.', shortName: 'Chromat.', color: '#80b380' },
   { id: 'beschichtung', name: 'Arbeitsplatz Beschichtung', shortName: 'Beschichtung', color: '#06b6d4' },
   { id: 'halle', name: 'Arbeitsplatz Halle', shortName: 'Halle', color: '#8b5cf6' },
   { id: 'schlosserei', name: 'Schlosserei', shortName: 'Schlosserei', color: '#ec4899' },
   { id: 'aufsteckerei', name: 'Aufsteckerei', shortName: 'Aufsteckerei', color: '#f59e0b' },
-  { id: 'abdeckerei', name: 'Abdeckerei', shortName: 'Abdeckerei', color: '#10b981' },
+  { id: 'abdeckerei', name: 'Abdeckerei', shortName: 'Abdeckerei', color: '#80b380' },
   { id: 'instandhaltung', name: 'Instandhaltung', shortName: 'Instandhaltung', color: '#6b7280' }
 ]
 
@@ -29,7 +29,7 @@ const DAYS = [
 ]
 
 const WORKER_STATUS_OPTIONS = [
-  { value: 'available', label: 'Verfügbar', icon: '✅', color: '#10b981' },
+  { value: 'available', label: 'Verfügbar', icon: '✅', color: '#80b380' },
   { value: 'krank', label: 'Krank', icon: '🤒', color: '#ef4444' },
   { value: 'urlaub', label: 'Urlaub', icon: '🏖️', color: '#3b82f6' },
   { value: 'inactive', label: 'Inaktiv', icon: '🚫', color: '#6b7280' }
@@ -48,6 +48,7 @@ export default function Schichtplan() {
   const [selectedWorker, setSelectedWorker] = useState(null)
   const [workerStatus, setWorkerStatus] = useState({})
   const [workerNotes, setWorkerNotes] = useState({})
+  const [editingNotes, setEditingNotes] = useState({})
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -380,6 +381,27 @@ export default function Schichtplan() {
     }))
   }
 
+  const isEditingNote = (workerId, stationId, dayId) => {
+    const key = `${workerId}-${stationId}-${dayId}`
+    return editingNotes[key] || false
+  }
+
+  const setEditingNote = (workerId, stationId, dayId, isEditing) => {
+    const key = `${workerId}-${stationId}-${dayId}`
+    setEditingNotes(prev => ({
+      ...prev,
+      [key]: isEditing
+    }))
+  }
+
+  const saveNote = (workerId, stationId, dayId) => {
+    setEditingNote(workerId, stationId, dayId, false)
+  }
+
+  const cancelNoteEdit = (workerId, stationId, dayId) => {
+    setEditingNote(workerId, stationId, dayId, false)
+  }
+
   const getWorkerStatusInfo = (workerId) => {
     const status = getWorkerStatus(workerId)
     return WORKER_STATUS_OPTIONS.find(option => option.value === status) || WORKER_STATUS_OPTIONS[0]
@@ -588,28 +610,22 @@ export default function Schichtplan() {
   return (
     <RequireAuth>
       <RoleGuard requiredRole="manager">
-        <div className="container">
-          <header style={{ 
-            display: "flex", 
-            justifyContent: "space-between", 
-            alignItems: "center",
-            marginBottom: "30px",
-            paddingBottom: "20px",
-            borderBottom: "1px solid #2a3142"
-          }}>
+        <div className="container-fluid bg-dark text-light min-vh-100">
+          <div className="container py-4">
+            <header className="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-secondary">
             <div>
-              <h1 style={{ margin: 0, fontSize: "2rem", color: "#e7ebf3" }}>
+                <h1 className="h2 mb-2 text-light">
                 📅 Schichtplan
               </h1>
-              <p style={{ margin: "8px 0 0 0", color: "#9ca3af" }}>
+                <p className="text-muted mb-0">
                 Ziehen Sie Mitarbeiter zu den Stationen für jeden Tag
               </p>
             </div>
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button onClick={clearAll} className="btn" style={{ backgroundColor: "#ef4444" }}>
+              <div className="d-flex gap-2">
+                <button onClick={clearAll} className="btn btn-danger">
                 Alle löschen
               </button>
-              <button className="btn" style={{ backgroundColor: "#059669" }}>
+                <button className="btn btn-success">
                 Plan speichern
               </button>
             </div>
@@ -621,50 +637,46 @@ export default function Schichtplan() {
             const stationStatus = getStationStatus()
             
             return (
-              <div style={{
-                backgroundColor: "#1f2937",
-                border: "1px solid #374151",
-                borderRadius: "8px",
-                padding: "16px",
-                marginBottom: "20px"
-              }}>
-                <h3 style={{ margin: "0 0 12px 0", color: "#e7ebf3" }}>📊 Planungsstatus</h3>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
-                  <div style={{ padding: "8px", backgroundColor: "#111827", borderRadius: "6px" }}>
-                    <div style={{ color: "#9ca3af", fontSize: "14px" }}>Verfügbare Mitarbeiter</div>
-                    <div style={{ color: "#e7ebf3", fontSize: "18px", fontWeight: "600" }}>{status.availableWorkers}</div>
+              <div className="card bg-dark border-secondary mb-4">
+                <div className="card-body">
+                  <h5 className="card-title text-light mb-3">📊 Planungsstatus</h5>
+                  <div className="row g-3">
+                    <div className="col-md-4">
+                      <div className="card bg-secondary border-0">
+                        <div className="card-body p-3">
+                          <div className="text-muted small">Verfügbare Mitarbeiter</div>
+                          <div className="h4 text-light mb-0">{status.availableWorkers}</div>
                   </div>
-                  <div style={{ padding: "8px", backgroundColor: "#111827", borderRadius: "6px" }}>
-                    <div style={{ color: "#9ca3af", fontSize: "14px" }}>Vollständige Tage</div>
-                    <div style={{ color: "#e7ebf3", fontSize: "18px", fontWeight: "600" }}>{status.completeDays}/{status.totalDays}</div>
                   </div>
-                  <div style={{ padding: "8px", backgroundColor: "#111827", borderRadius: "6px" }}>
-                    <div style={{ color: "#9ca3af", fontSize: "14px" }}>Status</div>
-                    <div style={{ 
-                      color: status.isFullyPlanned ? "#22c55e" : "#f59e0b", 
-                      fontSize: "14px", 
-                      fontWeight: "600" 
-                    }}>
+                    </div>
+                    <div className="col-md-4">
+                      <div className="card bg-secondary border-0">
+                        <div className="card-body p-3">
+                          <div className="text-muted small">Vollständige Tage</div>
+                          <div className="h4 text-light mb-0">{status.completeDays}/{status.totalDays}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-md-4">
+                      <div className="card bg-secondary border-0">
+                        <div className="card-body p-3">
+                          <div className="text-muted small">Status</div>
+                          <div className={`fw-bold ${status.isFullyPlanned ? 'text-success' : 'text-warning'}`}>
                       {status.isFullyPlanned ? "✅ Vollständig geplant" : "⏳ In Bearbeitung"}
+                          </div>
+                        </div>
                     </div>
                   </div>
                 </div>
                 
                 {/* Day-by-day status */}
-                <div style={{ marginTop: "12px" }}>
-                  <div style={{ color: "#9ca3af", fontSize: "14px", marginBottom: "8px" }}>Tagesstatus:</div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <div className="mt-3">
+                    <div className="text-muted small mb-2">Tagesstatus:</div>
+                    <div className="d-flex flex-wrap gap-2">
                     {Object.values(stationStatus).map(day => (
-                      <div key={day.day} style={{
-                        padding: "4px 8px",
-                        backgroundColor: day.isComplete ? "#22c55e" : "#374151",
-                        color: "white",
-                        borderRadius: "4px",
-                        fontSize: "12px",
-                        fontWeight: "500"
-                      }}>
+                        <span key={day.day} className={`badge ${day.isComplete ? 'bg-success' : 'bg-secondary'}`}>
                         {day.day}: {day.filledStations}/{day.totalStations}
-                      </div>
+                        </span>
                     ))}
                   </div>
                 </div>
@@ -682,36 +694,30 @@ export default function Schichtplan() {
                   ]
                   
                   return (
-                    <div style={{ marginTop: "16px" }}>
-                      <div style={{ color: "#9ca3af", fontSize: "14px", marginBottom: "8px" }}>
+                    <div className="mt-4">
+                      <div className="text-muted small mb-2">
                         Nicht verfügbare Mitarbeiter ({unavailable.total}):
                       </div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <div className="d-flex flex-wrap gap-2">
                         {allUnavailableWorkers.map((worker, index) => {
                           const statusInfo = worker.status === 'inactive' ? 
-                            { icon: '🚫', color: '#6b7280', label: 'Inaktiv' } :
+                            { icon: '🚫', color: 'secondary', label: 'Inaktiv' } :
                             worker.status === 'krank' ? 
-                            { icon: '🤒', color: '#ef4444', label: 'Krank' } :
+                            { icon: '🤒', color: 'danger', label: 'Krank' } :
                             worker.status === 'urlaub' ? 
-                            { icon: '🏖️', color: '#3b82f6', label: 'Urlaub' } :
-                            { icon: '✅', color: '#10b981', label: 'Zugewiesen' }
+                            { icon: '🏖️', color: 'info', label: 'Urlaub' } :
+                            { icon: '✓', color: 'success', label: 'Vollständig zugewiesen' }
                           
                           return (
                             <div
                               key={`unavailable-${worker.id}-${index}`}
+                              className={`badge bg-${statusInfo.color} text-dark d-flex align-items-center gap-1`}
                               style={{
-                                padding: "8px 12px",
-                                backgroundColor: statusInfo.color + '20',
-                                border: `2px solid ${statusInfo.color}`,
-                                color: statusInfo.color,
-                                borderRadius: "6px",
-                                fontSize: "13px",
                                 cursor: "pointer",
                                 position: "relative",
-                                minWidth: "120px",
+                                minWidth: "100px",
                                 textAlign: "center",
                                 transition: "all 0.2s",
-                                fontWeight: "500",
                                 zIndex: selectedWorker === worker.id ? 10000 : 1
                               }}
                               onMouseEnter={(e) => {
@@ -818,7 +824,7 @@ export default function Schichtplan() {
                 })()}
               </div>
             )
-          })()}
+          })()
 
           {error && (
             <div style={{
@@ -876,7 +882,7 @@ export default function Schichtplan() {
                     color: "white",
                     backgroundColor: 
                       notification.type === 'error' ? "#ef4444" :
-                      notification.type === 'success' ? "#22c55e" :
+                      notification.type === 'success' ? "#80b380" :
                       notification.type === 'warning' ? "#f59e0b" : "#3b82f6",
                     boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                     maxWidth: "400px",
@@ -894,43 +900,25 @@ export default function Schichtplan() {
           )}
 
               <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="shift-planner-layout" style={{ 
-                  display: 'flex', 
-                  flexDirection: window.innerWidth >= 768 ? 'row' : 'column',
-                  gap: '16px',
-                  minHeight: '500px',
-                  width: '100%'
-                }}>
+              <div className="row g-4">
                   {/* Workers Pool - Only Available Workers */}
-                  <div className="workers-pool" style={{
-                    width: window.innerWidth >= 768 ? '300px' : '100%',
-                    maxWidth: window.innerWidth >= 768 ? '300px' : '100%',
-                    flexShrink: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    order: window.innerWidth >= 768 ? 1 : 1
-                  }}>
-                    <h3 className="workers-title">
+                <div className="col-lg-3">
+                  <div className="card bg-dark border-secondary h-100">
+                    <div className="card-header">
+                      <h5 className="card-title text-light mb-0">
                       Verfügbare Mitarbeiter ({getAvailableWorkers().length})
-                    </h3>
+                      </h5>
+                    </div>
                     <Droppable droppableId="workers">
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
                           {...provided.droppableProps}
-                          className="workers-container"
-                          style={{
-                            backgroundColor: snapshot.isDraggingOver ? "#1f2937" : "#111827",
-                          }}
+                          className={`card-body ${snapshot.isDraggingOver ? 'bg-secondary' : ''}`}
+                          style={{ minHeight: "300px" }}
                         >
                           {getAvailableWorkers().length === 0 ? (
-                            <div style={{
-                              color: "#9ca3af",
-                              fontSize: "12px",
-                              textAlign: "center",
-                              padding: "20px",
-                              width: "100%"
-                            }}>
+                            <div className="text-muted text-center py-5">
                               Keine verfügbaren Mitarbeiter
                             </div>
                           ) : (
@@ -941,13 +929,11 @@ export default function Schichtplan() {
                                   ref={provided.innerRef}
                                   {...provided.draggableProps}
                                   {...provided.dragHandleProps}
-                                  className="worker-item clickable-worker"
+                                  className={`card mb-2 ${snapshot.isDragging ? 'bg-primary' : 'bg-secondary'} text-light`}
                               style={{
-                                backgroundColor: snapshot.isDragging ? "#2563eb" : "#374151",
-                                boxShadow: snapshot.isDragging ? "0 4px 12px rgba(0,0,0,0.3)" : "none",
                                 transform: snapshot.isDragging ? "scale(1.05)" : "scale(1)",
-                                position: "relative",
-                                textAlign: "left",
+                                    transition: "all 0.2s ease",
+                                    cursor: "grab",
                                 ...provided.draggableProps.style
                               }}
                                   onClick={(e) => {
@@ -955,26 +941,62 @@ export default function Schichtplan() {
                                     setSelectedWorker(selectedWorker === worker.id ? null : worker.id)
                                   }}
                                 >
+                                  <div className="card-body p-2">
+                                    <span className="text-light fw-medium">
                                   {worker.firstName}
-                                  <span className="worker-status-indicator" style={{ 
-                                    color: getWorkerStatusInfo(worker.id).color,
-                                    marginLeft: "4px"
-                                  }}>
-                                    {getWorkerStatusInfo(worker.id).icon}
                                   </span>
+                                  </div>
                                   
                                   {/* Status Dropdown */}
                                   {selectedWorker === worker.id && (
-                                    <div className="worker-status-dropdown">
+                                    <div style={{
+                                      position: "absolute",
+                                      top: "100%",
+                                      left: "0",
+                                      background: "#1f2937",
+                                      border: "1px solid #4b5563",
+                                      borderRadius: "6px",
+                                      padding: "4px",
+                                      zIndex: 10001,
+                                      boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                                      marginTop: "4px",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "2px",
+                                      minWidth: "140px",
+                                      maxWidth: "200px"
+                                    }}>
                                       {WORKER_STATUS_OPTIONS.map(option => (
                                         <button
                                           key={option.value}
-                                          className="status-option"
                                           onClick={(e) => {
                                             e.stopPropagation()
                                             setWorkerStatusValue(worker.id, option.value)
                                           }}
-                                          style={{ color: option.color }}
+                                          style={{
+                                            width: "100%",
+                                            padding: "8px 12px",
+                                            background: "#374151",
+                                            border: "1px solid #4b5563",
+                                            color: option.color,
+                                            textAlign: "left",
+                                            cursor: "pointer",
+                                            borderRadius: "4px",
+                                            fontSize: "12px",
+                                            transition: "all 0.2s",
+                                            margin: "0",
+                                            outline: "none",
+                                            userSelect: "none",
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis"
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.target.style.background = "#4b5563"
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.target.style.background = "#374151"
+                                          }}
                                         >
                                           {option.icon} {option.label}
                                         </button>
@@ -993,70 +1015,49 @@ export default function Schichtplan() {
                   </div>
 
                   {/* Shift Plan Table - Always Visible */}
-                  <div className="shift-table-container" style={{ 
-                    flex: 1,
-                    minHeight: '500px', 
-                    border: '2px solid #10b981', 
-                    backgroundColor: '#1f2937',
-                    borderRadius: '8px',
-                    padding: '12px',
-                    marginTop: window.innerWidth >= 768 ? '0' : '16px',
-                    width: '100%',
-                    display: 'block',
-                    position: 'relative',
-                    order: window.innerWidth >= 768 ? 2 : 3
-                  }}>
-                    <div className="shift-table" style={{
-                      minHeight: '300px',
-                      visibility: 'visible',
-                      opacity: 1,
-                      display: 'grid',
-                      gridTemplateColumns: '100px repeat(5, minmax(70px, 1fr))',
-                      gap: '1px',
-                      backgroundColor: '#374151',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                      fontSize: '10px',
-                      width: '100%',
-                      maxWidth: '100%'
-                    }}>
-                      {/* Header Row */}
-                      <div className="table-header" style={{
-                        padding: '4px 3px',
-                        backgroundColor: '#1f2937',
-                        color: '#e7ebf3',
-                        fontWeight: 'bold',
-                        textAlign: 'center',
-                        borderBottom: '1px solid #4b5563'
-                      }}>
-                        Station
+                <div className="col-lg-9">
+                  <div className="card bg-dark border-success">
+                    <div className="card-header bg-success text-dark">
+                      <h5 className="card-title mb-0">Schichtplan Tabelle</h5>
                       </div>
+                    <div className="card-body p-0">
+                      <div className="table-responsive">
+                        <table className="table table-dark table-bordered mb-0">
+                          <thead>
+                            <tr>
+                              <th className="bg-secondary text-light text-center" style={{ width: '140px' }}>Station</th>
                       {DAYS.map(day => (
-                        <div key={day.id} className="day-header">
+                                <th key={day.id} className="bg-secondary text-light text-center">
                           {day.short}
                           <br />
-                          <small className="day-date">
+                                  <small className="text-muted">
                             {formatDate(getWeekDates(selectedWeek)[DAYS.indexOf(day)])}
                           </small>
-                        </div>
+                                </th>
                       ))}
-
-                  {/* Station Rows */}
+                            </tr>
+                          </thead>
+                          <tbody>
                   {STATIONS.map(station => (
-                    <React.Fragment key={station.id}>
-                      <div 
-                        className="station-name"
-                        style={{ borderLeftColor: station.color }}
+                              <tr key={station.id}>
+                                <td 
+                                  className="bg-secondary text-light text-center fw-bold"
+                                  style={{ borderLeft: `4px solid ${station.color}` }}
                       >
                         {station.shortName}
-                      </div>
+                                </td>
                       {DAYS.map(day => (
                         <Droppable key={`${station.id}|${day.id}`} droppableId={`${station.id}|${day.id}`}>
                           {(provided, snapshot) => (
-                            <div
+                                      <td
                               ref={provided.innerRef}
                               {...provided.droppableProps}
-                              className={`station-cell ${snapshot.isDraggingOver ? 'dragging-over' : ''}`}
+                                        className={`${snapshot.isDraggingOver ? 'bg-secondary' : 'bg-dark'} position-relative`}
+                                        style={{ 
+                                          minHeight: "80px",
+                                          verticalAlign: "top",
+                                          padding: "8px"
+                                        }}
                             >
                               {plan[station.id]?.[day.id]?.map((worker, index) => (
                                 <Draggable key={`${station.id}-${day.id}-${worker.id}-${index}`} draggableId={`${worker.id}-${station.id}-${day.id}-${index}`} index={index}>
@@ -1065,39 +1066,231 @@ export default function Schichtplan() {
                                       ref={provided.innerRef}
                                       {...provided.draggableProps}
                                       {...provided.dragHandleProps}
-                                      className={`worker-in-station ${snapshot.isDragging ? 'dragging' : ''}`}
+                                      className={`card mb-2 ${snapshot.isDragging ? 'bg-primary' : 'bg-secondary'} text-light`}
                                       style={{
-                                        backgroundColor: snapshot.isDragging ? "#2563eb" : "#6b7280",
-                                        position: "relative",
+                                        transform: snapshot.isDragging ? "scale(1.05)" : "scale(1)",
+                                        transition: "all 0.2s ease",
+                                        cursor: "grab",
                                         ...provided.draggableProps.style
                                       }}
+                                      onMouseEnter={(e) => {
+                                        const buttons = e.currentTarget.querySelector('.action-buttons')
+                                        if (buttons) buttons.style.opacity = "1"
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        const buttons = e.currentTarget.querySelector('.action-buttons')
+                                        if (buttons) buttons.style.opacity = "0"
+                                      }}
                                     >
-                                      <div className="worker-name-in-station">
-                                        {worker.firstName}
-                                        <span className="worker-status-in-station" style={{ 
-                                          color: getWorkerStatusInfo(worker.id).color,
-                                          marginLeft: "4px"
-                                        }}>
-                                          {getWorkerStatusInfo(worker.id).icon}
+                                      {/* Worker Header */}
+                                      <div style={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        marginBottom: "6px"
+                                      }}>
+                                        <div className="card-body p-2">
+                                          <span className="text-light fw-medium">
+                                            {worker.firstName}
                                         </span>
                                       </div>
                                       
-                                      {/* Note Input */}
-                                      <div className="worker-note-container">
-                                        <input
-                                          type="text"
-                                          placeholder="Notiz..."
-                                          value={getWorkerNote(worker.id, station.id, day.id)}
-                                          onChange={(e) => setWorkerNote(worker.id, station.id, day.id, e.target.value)}
-                                          className="worker-note-input"
-                                          onClick={(e) => e.stopPropagation()}
-                                        />
+                                        {/* Action Buttons - Show on Hover */}
+                                        <div className="action-buttons" style={{
+                                          display: "flex",
+                                          gap: "4px",
+                                          opacity: 0,
+                                          transition: "opacity 0.2s ease"
+                                        }}
+                                        >
+                                          {/* Edit Note Button */}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setEditingNote(worker.id, station.id, day.id, true)
+                                            }}
+                                            style={{
+                                              width: "16px",
+                                              height: "16px",
+                                              borderRadius: "50%",
+                                              backgroundColor: "#6b7280",
+                                              border: "none",
+                                              color: "white",
+                                              fontSize: "8px",
+                                              cursor: "pointer",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              transition: "all 0.2s ease"
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.target.style.backgroundColor = "#4b5563"
+                                              e.target.style.transform = "scale(1.1)"
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.target.style.backgroundColor = "#6b7280"
+                                              e.target.style.transform = "scale(1)"
+                                            }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          
+                                          {/* Remove Button */}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              // Remove worker from station
+                                              setPlan(prev => ({
+                                                ...prev,
+                                                [station.id]: {
+                                                  ...prev[station.id],
+                                                  [day.id]: prev[station.id][day.id].filter((_, idx) => idx !== index)
+                                                }
+                                              }))
+                                            }}
+                                            style={{
+                                              width: "16px",
+                                              height: "16px",
+                                              borderRadius: "50%",
+                                              backgroundColor: "#ef4444",
+                                              border: "none",
+                                              color: "white",
+                                              fontSize: "10px",
+                                              cursor: "pointer",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              transition: "all 0.2s ease"
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.target.style.backgroundColor = "#dc2626"
+                                              e.target.style.transform = "scale(1.1)"
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.target.style.backgroundColor = "#ef4444"
+                                              e.target.style.transform = "scale(1)"
+                                            }}
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
                                       </div>
                                       
-                                      {/* Show note if exists */}
-                                      {getWorkerNote(worker.id, station.id, day.id) && (
-                                        <div className="worker-note-display">
-                                          📝 {getWorkerNote(worker.id, station.id, day.id)}
+                                      {/* Note Section - Only show if note exists or editing */}
+                                      {(getWorkerNote(worker.id, station.id, day.id) || isEditingNote(worker.id, station.id, day.id)) && (
+                                        <div style={{ marginTop: "4px" }}>
+                                          {isEditingNote(worker.id, station.id, day.id) ? (
+                                            <div style={{
+                                              display: "flex",
+                                              gap: "4px",
+                                              alignItems: "center"
+                                            }}>
+                                        <input
+                                          type="text"
+                                                placeholder="Notiz hinzufügen..."
+                                          value={getWorkerNote(worker.id, station.id, day.id)}
+                                          onChange={(e) => setWorkerNote(worker.id, station.id, day.id, e.target.value)}
+                                          onClick={(e) => e.stopPropagation()}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') {
+                                                    saveNote(worker.id, station.id, day.id)
+                                                  } else if (e.key === 'Escape') {
+                                                    cancelNoteEdit(worker.id, station.id, day.id)
+                                                  }
+                                                }}
+                                                autoFocus
+                                                style={{
+                                                  flex: 1,
+                                                  padding: "4px 8px",
+                                                  fontSize: "10px",
+                                                  border: "1px solid #6b7280",
+                                                  borderRadius: "4px",
+                                                  backgroundColor: "#1f2937",
+                                                  color: "#e7ebf3",
+                                                  outline: "none",
+                                                  transition: "all 0.2s ease"
+                                                }}
+                                              />
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  saveNote(worker.id, station.id, day.id)
+                                                }}
+                                                style={{
+                                                  width: "18px",
+                                                  height: "18px",
+                                                  borderRadius: "3px",
+                                                  backgroundColor: "#6b7280",
+                                                  border: "none",
+                                                  color: "white",
+                                                  cursor: "pointer",
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                                  justifyContent: "center",
+                                                  fontSize: "8px",
+                                                  transition: "all 0.2s ease"
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                  e.target.style.backgroundColor = "#4b5563"
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                  e.target.style.backgroundColor = "#6b7280"
+                                                }}
+                                              >
+                                                ✓
+                                              </button>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  cancelNoteEdit(worker.id, station.id, day.id)
+                                                }}
+                                                style={{
+                                                  width: "18px",
+                                                  height: "18px",
+                                                  borderRadius: "3px",
+                                                  backgroundColor: "#6b7280",
+                                                  border: "none",
+                                                  color: "white",
+                                                  cursor: "pointer",
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                                  justifyContent: "center",
+                                                  fontSize: "8px",
+                                                  transition: "all 0.2s ease"
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                  e.target.style.backgroundColor = "#4b5563"
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                  e.target.style.backgroundColor = "#6b7280"
+                                                }}
+                                              >
+                                                ×
+                                              </button>
+                                      </div>
+                                          ) : (
+                                            <div style={{
+                                              padding: "4px 6px",
+                                              backgroundColor: "#1f2937",
+                                              border: "1px solid #4b5563",
+                                              borderRadius: "4px",
+                                              fontSize: "10px",
+                                              color: "#9ca3af",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "4px"
+                                            }}>
+                                              <span style={{ fontSize: "8px" }}>📝</span>
+                                              <span style={{ 
+                                                overflow: "hidden", 
+                                                textOverflow: "ellipsis", 
+                                                whiteSpace: "nowrap",
+                                                maxWidth: "100px"
+                                              }}>
+                                                {getWorkerNote(worker.id, station.id, day.id)}
+                                              </span>
+                                            </div>
+                                          )}
                                         </div>
                                       )}
                                     </div>
@@ -1105,28 +1298,26 @@ export default function Schichtplan() {
                                 </Draggable>
                               ))}
                               {provided.placeholder}
-                              
-                              {/* Clear button */}
-                              {plan[station.id]?.[day.id]?.length > 0 && (
-                                <button
-                                  onClick={() => clearStation(station.id, day.id)}
-                                  className="clear-station-btn"
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </div>
+                                      </td>
                           )}
                         </Droppable>
                       ))}
-                    </React.Fragment>
+                              </tr>
                   ))}
-                    </div>
-                  </div>
-                </div>
-              </DragDropContext>
-        </div>
-      </RoleGuard>
-    </RequireAuth>
-  )
+                      </tbody>
+                    </table>
+                  </div>   {/* closes .table-responsive */}
+                </div>     {/* closes .card-body */}
+              </div>       {/* closes .card */}
+            </div>         {/* closes .col-lg-9 */}
+          </div>           {/* closes .row g-4 */}
+        </DragDropContext> {/* closes DragDropContext */}
+      </div>               {/* closes .container */}
+    </div>                 {/* closes .container-fluid */}
+    </div>
+    </div>
+  </RoleGuard>
+</RequireAuth>
+)
 }
+
